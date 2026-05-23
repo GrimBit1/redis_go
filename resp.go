@@ -23,10 +23,13 @@ const (
 type ReqState string
 
 const (
-	Init ReqState = "init"
-	Type ReqState = "got type"
-	Len  ReqState = "got len"
-	Done ReqState = "done"
+	Init   ReqState = "init"
+	Type   ReqState = "got type"
+	Len    ReqState = "got len"
+	Header ReqState = "reading header"
+	Data   ReqState = "reading data"
+	CMD    ReqState = "command complete"
+	Done   ReqState = "done"
 )
 
 type Elem struct {
@@ -55,12 +58,17 @@ func (r *Request) Parse(buf []byte) (int, error) {
 
 	for r.state != Done {
 		data := buf[read:]
-		if len(data) == 0 {
+		if len(data) < 2 {
 			break
 		}
-		i := bytes.Index(data, []byte("\r\n"))
-		if i == -1 {
-			return 0, nil
+
+		i := len(data)
+		if r.state != Data && r.state != CMD {
+			i = bytes.Index(data, []byte("\r\n"))
+
+			if i == -1 {
+				return read, nil
+			}
 		}
 		currentData := data[:i]
 		fmt.Println(i, currentData)
@@ -77,6 +85,7 @@ func (r *Request) Parse(buf []byte) (int, error) {
 }
 
 func (r *Request) ParseMessage(data []byte) (int, error) {
+	read := 0
 	defer fmt.Println(string(data))
 
 	if r.state == Init {
@@ -89,14 +98,15 @@ func (r *Request) ParseMessage(data []byte) (int, error) {
 			return 0, err
 		}
 		r.Len = lenInt
-		r.state = Len
+		r.state = Header
 
 		if r.Type == Array {
 			r.Array = make([]Elem, 0, lenInt)
 		}
-		return len(data) + len(SEP), nil
+		read += len(data) + len(SEP)
+		return read, nil
 	}
-	if r.state == Len {
+	if r.state == Header || r.state == Data {
 		if r.Type == Array {
 			switch data[0] {
 			case byte(BulkString):
@@ -116,25 +126,48 @@ func (r *Request) ParseMessage(data []byte) (int, error) {
 					return 0, err
 				}
 				elem.Len = lenInt
+				if elem.Type == BulkString {
+					elem.Value = make([]byte, 0, elem.Len)
+				}
 				r.Array = append(r.Array, elem)
+				r.state = Data
+				read += len(data) + len(SEP)
 			default:
 				if len(r.Array) == 0 {
 					return 0, errors.New("not valid data")
 				}
-				r.Array[len(r.Array)-1].Value = data[:r.Array[len(r.Array)-1].Len]
+				read += min(len(data), r.Array[len(r.Array)-1].Len-len(r.Array[len(r.Array)-1].Value))
+				r.Array[len(r.Array)-1].Value = append(r.Array[len(r.Array)-1].Value, data[:min(len(data), r.Array[len(r.Array)-1].Len-len(r.Array[len(r.Array)-1].Value))]...)
 
-				if len(r.Array) == r.Len {
-					r.state = Done
-					return len(data) + len(SEP), nil
+				if r.Array[len(r.Array)-1].Len == len(r.Array[len(r.Array)-1].Value) {
+					if len(r.Array) == r.Len {
+						r.state = CMD
+					} else {
+						r.state = Header
+					}
+					if len(data) != read && string(data[read:min(len(data), read+len(SEP))]) == SEP {
+						read += len(SEP)
+						if r.state == CMD {
+							r.state = Done
+						}
+					}
+					return read, nil
 				}
-
+				return read, nil
 			}
 
 		}
 		return len(data) + len(SEP), nil
 	}
+	if r.state == CMD {
+		if string(data) == SEP {
+			r.state = Done
+			return len(SEP), nil
 
-	return 0, nil
+		}
+	}
+
+	return read, nil
 }
 
 func (r *Request) ToCommand() (Command, error) {
@@ -149,6 +182,8 @@ func (r *Request) ToCommand() (Command, error) {
 		cmd.Type = GET
 	case "delete":
 		cmd.Type = DELETE
+	default:
+		cmd.Type = -1
 	}
 
 	cmd.Args = make([]string, 0, r.Len)

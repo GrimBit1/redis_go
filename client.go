@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -26,46 +27,48 @@ func NewClient(addr string) (*Client, error) {
 }
 
 func (c *Client) Set(ctx context.Context, key, value string) error {
-	conn, err := dialer.DialContext(ctx, "tcp", c.addr)
+
+	data := fmt.Sprintf("*3\r\n$3\r\nSET\r\n$%d\r\n%s\r\n$%d\r\n%s\r\n", len(key), key, len(value), value)
+	fmt.Println("data", data)
+
+	_, err := c.conn.Write([]byte(data))
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-
-	for i := range 10 {
-
-		data := fmt.Sprintf("*3\r\n$3\r\nSET\r\n$%d\r\n%s_%d\r\n$%d\r\n%s_%d\r\n", len(key)+1, key, i, len(value)+1, value, i)
-		fmt.Println("data", data)
-
-		_, err = conn.Write([]byte(data))
-		if err != nil {
-			return err
-		}
-		buf := make([]byte, 1024)
-		conn.Read(buf)
-		fmt.Println("buf", strings.TrimSpace(string(buf)))
-	}
+	buf := make([]byte, 1024)
+	c.conn.Read(buf)
+	fmt.Println("buf", strings.TrimSpace(string(buf)))
 	return nil
 }
-func (c *Client) Get(ctx context.Context, key string) error {
-	conn, err := dialer.DialContext(ctx, "tcp", c.addr)
+func (c *Client) Get(ctx context.Context, key string) (string, error) {
+
+	data := fmt.Sprintf("*2\r\n$3\r\nGET\r\n$%d\r\n%s\r\n", len(key), key)
+	fmt.Println("data", data)
+
+	_, err := c.conn.Write([]byte(data))
 	if err != nil {
-		return err
+		return "", err
 	}
-	defer conn.Close()
-
-	for i := range 10 {
-
-		data := fmt.Sprintf("*2\r\n$3\r\nGET\r\n$%d\r\n%s_%d\r\n", len(key)+1, key, i)
-		fmt.Println("data", data)
-
-		_, err = conn.Write([]byte(data))
+	buf := make([]byte, 1024)
+	val := ""
+	for {
+		n, err := c.conn.Read(buf)
 		if err != nil {
-			return err
+			return "", err
 		}
-		buf := make([]byte, 1024)
-		conn.Read(buf)
-		fmt.Println("buf", strings.TrimSpace(string(buf)))
+		currentData := buf[:n]
+		fmt.Println("buf", currentData)
+		i := bytes.Index(currentData, []byte(SEP))
+		if i != -1 {
+			val = string(currentData[:i])
+			break
+		} else {
+			continue
+		}
 	}
-	return nil
+
+	return val[1:], nil
+}
+func (c *Client) Close() error {
+	return c.conn.Close()
 }

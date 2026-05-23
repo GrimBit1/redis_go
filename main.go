@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -54,12 +53,12 @@ func (s *Server) acceptLoop() error {
 }
 
 func (s *Server) handleConn(conn net.Conn) error {
-	buf := make([]byte, 1024)
+	buf := make([]byte, 2048)
 	read := 0
 	r := NewRequest()
 	defer conn.Close()
 	for {
-		n, err := conn.Read(buf)
+		n, err := conn.Read(buf[read:])
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				fmt.Println("conn closed by client")
@@ -85,6 +84,7 @@ func (s *Server) handleConn(conn net.Conn) error {
 			if err != nil {
 				return err
 			}
+			fmt.Println("cmd", cmd)
 			switch cmd.Type {
 			case SET:
 				err := s.store.Set(cmd.Args[0], cmd.Args[1])
@@ -98,37 +98,22 @@ func (s *Server) handleConn(conn net.Conn) error {
 				if !ok {
 					conn.Write([]byte("-not found"))
 				} else {
-					conn.Write([]byte("+" + val))
+					conn.Write([]byte("+" + val + SEP))
 				}
 				fmt.Println("done", time.Now())
 
 				continue
 			}
-			conn.Write([]byte("+OK"))
+			conn.Write([]byte("+OK\r\n"))
+			r = NewRequest()
+			read = 0
 		}
 	}
 }
 
 func main() {
 	s := NewServer(Config{})
-	go func() {
-		log.Fatal(s.Start())
-	}()
-	client, err := NewClient("localhost:6379")
-	if err != nil {
-		slog.Error(err.Error())
-	}
 
-	err = client.Set(context.Background(), "key", "value")
-	if err != nil {
-		slog.Error(err.Error())
-	}
-	err = client.Get(context.Background(), "key")
-	if err != nil {
-		slog.Error(err.Error())
-	}
-
-	fmt.Println("data", s.store.data)
-	select {}
+	log.Fatal(s.Start())
 
 }
