@@ -12,9 +12,11 @@ func TestClient(t *testing.T) {
 	wg.Add(10)
 	for i := range 10 {
 		go func(it int) {
+			defer wg.Done()
+
 			client, err := NewClient("localhost:6379")
 			if err != nil {
-				t.Error(err)
+				t.Fatal(err)
 			}
 
 			err = client.Set(context.Background(), fmt.Sprintf("key_%d", it), fmt.Sprintf("value_%d", it))
@@ -31,7 +33,6 @@ func TestClient(t *testing.T) {
 			if val != fmt.Sprintf("value_%d", it) {
 				t.Error("val not match")
 			}
-			wg.Done()
 		}(i)
 	}
 	wg.Wait()
