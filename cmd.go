@@ -8,6 +8,7 @@ const (
 	GET    CommandType = 0
 	SET    CommandType = 1
 	DELETE CommandType = 2
+	HELLO  CommandType = 3
 )
 
 type Command struct {

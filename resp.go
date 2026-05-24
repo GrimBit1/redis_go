@@ -63,10 +63,17 @@ func (r *Request) Parse(buf []byte) (int, error) {
 		}
 
 		i := len(data)
-		if r.state != Data && r.state != CMD {
+		if r.state != Data {
 			i = bytes.Index(data, []byte("\r\n"))
 
 			if i == -1 {
+				return read, nil
+			}
+			if i == 0 {
+				read += len(SEP)
+				if r.state == CMD {
+					r.state = Done
+				}
 				return read, nil
 			}
 		}
@@ -159,13 +166,6 @@ func (r *Request) ParseMessage(data []byte) (int, error) {
 		}
 		return len(data) + len(SEP), nil
 	}
-	if r.state == CMD {
-		if string(data) == SEP {
-			r.state = Done
-			return len(SEP), nil
-
-		}
-	}
 
 	return read, nil
 }
@@ -182,6 +182,8 @@ func (r *Request) ToCommand() (Command, error) {
 		cmd.Type = GET
 	case "delete":
 		cmd.Type = DELETE
+	case "hello":
+		cmd.Type = HELLO
 	default:
 		cmd.Type = -1
 	}
