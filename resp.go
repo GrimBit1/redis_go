@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 )
@@ -48,6 +50,117 @@ func NewRequest() *Request {
 	return &Request{
 		state: Init,
 	}
+}
+
+func (r *Request) ParseReader(b *bufio.Reader) error {
+	elem := Elem{}
+	err := elem.ParseReader(b)
+	r.Elem = elem
+	return err
+}
+
+func (e *Elem) ParseReader(b *bufio.Reader) error {
+	// Parse first header
+	err := e.ParseHeaderReader(b)
+	if err != nil {
+		return err
+	}
+
+	if e.Type == Array {
+		// Parse array's elem header and body
+		for range e.Len {
+			// Check if elem is array or not
+			sym, _, err := b.ReadRune()
+			if err != nil {
+				return err
+			}
+			elem := Elem{Type: RespType(sym)}
+			if RespType(sym) == Array {
+
+				err = elem.ParseReader(b)
+				if err != nil {
+					return err
+				}
+			} else {
+				err = elem.ParseHeaderReader(b)
+				if err != nil {
+					return err
+				}
+
+				// Parse body
+				err = elem.ParseBodyReader(b)
+				if err != nil {
+					return err
+				}
+
+				// Read \r\n
+
+			}
+			e.Array = append(e.Array, elem)
+
+		}
+
+	}
+
+	return nil
+}
+func (e *Elem) ParseHeaderReader(b *bufio.Reader) error {
+	if e.Type == 0 {
+		sym, _, err := b.ReadRune()
+		if err != nil {
+			return err
+		}
+		e.Type = RespType(sym)
+		fmt.Println("sym", string(sym))
+	}
+	if e.Type == Array || e.Type == BulkString {
+		lenStr, err := b.ReadString('\n')
+		if err != nil {
+			return err
+		}
+
+		lenInt, err := strconv.Atoi(string(strings.Trim(lenStr, "\r\n")))
+		if err != nil {
+			return err
+		}
+
+		e.Len = lenInt
+
+		// Read First symbol and length
+		if e.Type == Array {
+			e.Array = make([]Elem, 0, lenInt)
+		}
+	}
+
+	return nil
+}
+
+func (e *Elem) ParseBodyReader(b *bufio.Reader) error {
+	if e.Type == BulkString {
+		e.Value = make([]byte, e.Len)
+		_, err := io.ReadFull(b, e.Value)
+		if err != nil {
+			return err
+		}
+
+		// Read \r\n
+		sep, err := b.ReadBytes('\n')
+		if err != nil {
+			return err
+		}
+		fmt.Println("sep", string(sep))
+	}
+	if e.Type == Array {
+
+	}
+	if e.Type == SimpleString {
+		str, err := b.ReadBytes('\n')
+		if err != nil {
+			return err
+		}
+		e.Value = bytes.Trim(str, "\r\n")
+	}
+	return nil
 }
 
 func (r *Request) Parse(buf []byte) (int, error) {

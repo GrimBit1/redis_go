@@ -1,7 +1,7 @@
 package main
 
 import (
-	"errors"
+	"bufio"
 	"fmt"
 	"log"
 	"log/slog"
@@ -53,83 +53,55 @@ func (s *Server) acceptLoop() error {
 }
 
 func (s *Server) handleConn(conn net.Conn) error {
-	buf := make([]byte, 10)
-	read := 0
-	r := NewRequest()
+
+	reader := bufio.NewReader(conn)
 	defer conn.Close()
 	for {
-		n, err := conn.Read(buf[read:])
+		r := NewRequest()
+
+		err := r.ParseReader(reader)
 		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				fmt.Println("conn closed by client")
-			} else {
-				return err
-			}
+			return err
 		}
-
-		read += n
-		for {
-
-			re, err := r.Parse(buf[:read])
+		cmd, err := r.ToCommand()
+		if err != nil {
+			return err
+		}
+		fmt.Println("cmd", cmd)
+		switch cmd.Type {
+		case SET:
+			if len(cmd.Args) < 2 {
+				conn.Write([]byte("$-1\r\n"))
+				break
+			}
+			err := s.store.Set(cmd.Args[0], cmd.Args[1])
 			if err != nil {
-				return err
+				conn.Write([]byte("-" + err.Error()))
 			}
+			fmt.Println("done", time.Now())
+			conn.Write([]byte("+OK\r\n"))
 
-			if re != 0 {
-				copy(buf, buf[re:read])
-				read -= re
+		case GET:
+			val, ok := s.store.Get(cmd.Args[0])
+			if !ok {
+				conn.Write([]byte("-not found"))
 			} else {
-				break
+				conn.Write([]byte("+" + val + SEP))
 			}
+			fmt.Println("done", time.Now())
 
-			if r.state == Done {
-				cmd, err := r.ToCommand()
-				if err != nil {
-					return err
-				}
-				fmt.Println("cmd", cmd)
-				switch cmd.Type {
-				case SET:
-					if len(cmd.Args) < 2 {
-						conn.Write([]byte("-expected 2 args"))
-						break
-					}
-					err := s.store.Set(cmd.Args[0], cmd.Args[1])
-					if err != nil {
-						conn.Write([]byte("-" + err.Error()))
-					}
-					fmt.Println("done", time.Now())
-					conn.Write([]byte("+OK\r\n"))
+		case HELLO:
+			conn.Write([]byte("*14\r\n" +
+				"$6\r\nserver\r\n$5\r\nredis\r\n" +
+				"$7\r\nversion\r\n$5\r\n6.0.0\r\n" +
+				"$5\r\nproto\r\n$1\r\n2\r\n" +
+				"$2\r\nid\r\n$1\r\n1\r\n" +
+				"$4\r\nmode\r\n$10\r\nstandalone\r\n" +
+				"$4\r\nrole\r\n$6\r\nmaster\r\n" +
+				"$7\r\nmodules\r\n*0\r\n"))
 
-				case GET:
-					val, ok := s.store.Get(cmd.Args[0])
-					if !ok {
-						conn.Write([]byte("-not found"))
-					} else {
-						conn.Write([]byte("+" + val + SEP))
-					}
-					fmt.Println("done", time.Now())
-
-				case HELLO:
-					conn.Write([]byte("*14\r\n" +
-						"$6\r\nserver\r\n$5\r\nredis\r\n" +
-						"$7\r\nversion\r\n$5\r\n6.0.0\r\n" +
-						"$5\r\nproto\r\n$1\r\n2\r\n" +
-						"$2\r\nid\r\n$1\r\n1\r\n" +
-						"$4\r\nmode\r\n$10\r\nstandalone\r\n" +
-						"$4\r\nrole\r\n$6\r\nmaster\r\n" +
-						"$7\r\nmodules\r\n*0\r\n"))
-
-				default:
-					conn.Write([]byte("+OK\r\n"))
-				}
-				r = NewRequest()
-				// read = 0
-
-			}
-			if read == 0 {
-				break
-			}
+		default:
+			conn.Write([]byte("+OK\r\n"))
 		}
 	}
 }
