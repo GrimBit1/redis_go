@@ -19,16 +19,22 @@ type Server struct {
 	Config
 	ln    net.Listener
 	store Store
+	aof   *AOF
 }
 
-func NewServer(cfg Config) *Server {
+func NewServer(cfg Config) (*Server, error) {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = DefaultListenAddr
+	}
+	aof, err := NewAOF("./tmp.log")
+	if err != nil {
+		return nil, err
 	}
 	return &Server{
 		Config: cfg,
 		store:  NewStore(),
-	}
+		aof:    aof,
+	}, nil
 }
 
 func (s *Server) Start() error {
@@ -37,6 +43,7 @@ func (s *Server) Start() error {
 		return err
 	}
 	s.ln = ln
+	go s.aof.FlushLoop()
 	return s.acceptLoop()
 }
 
@@ -55,6 +62,7 @@ func (s *Server) acceptLoop() error {
 func (s *Server) handleConn(conn net.Conn) error {
 
 	reader := bufio.NewReader(conn)
+
 	defer conn.Close()
 	for {
 		r := NewRequest()
@@ -68,46 +76,35 @@ func (s *Server) handleConn(conn net.Conn) error {
 			return err
 		}
 		fmt.Println("cmd", cmd)
-		switch cmd.Type {
-		case SET:
-			if len(cmd.Args) < 2 {
-				conn.Write([]byte("$-1\r\n"))
-				break
-			}
-			err := s.store.Set(cmd.Args[0], cmd.Args[1])
-			if err != nil {
-				conn.Write([]byte("-" + err.Error()))
-			}
-			fmt.Println("done", time.Now())
-			conn.Write([]byte("+OK\r\n"))
 
-		case GET:
-			val, ok := s.store.Get(cmd.Args[0])
-			if !ok {
-				conn.Write([]byte("-not found"))
-			} else {
-				conn.Write([]byte("+" + val + SEP))
+		res, err := cmd.Execute(&s.store)
+		if err != nil {
+			conn.Write(ToErrorString("ERR " + err.Error()))
+		} else {
+			conn.Write(res)
+			if cmd.Writing {
+				resp, err := cmd.ToResp()
+				if err != nil {
+					return err
+				}
+				err = s.aof.WriteRaw(resp)
+				if err != nil {
+					return err
+				}
 			}
-			fmt.Println("done", time.Now())
-
-		case HELLO:
-			conn.Write([]byte("*14\r\n" +
-				"$6\r\nserver\r\n$5\r\nredis\r\n" +
-				"$7\r\nversion\r\n$5\r\n6.0.0\r\n" +
-				"$5\r\nproto\r\n$1\r\n2\r\n" +
-				"$2\r\nid\r\n$1\r\n1\r\n" +
-				"$4\r\nmode\r\n$10\r\nstandalone\r\n" +
-				"$4\r\nrole\r\n$6\r\nmaster\r\n" +
-				"$7\r\nmodules\r\n*0\r\n"))
-
-		default:
-			conn.Write([]byte("+OK\r\n"))
 		}
 	}
 }
 
 func main() {
-	s := NewServer(Config{})
+	s, err := NewServer(Config{})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := s.aof.Replay(&s.store); err != nil {
+		log.Fatal(err)
+	}
 
 	log.Fatal(s.Start())
 
