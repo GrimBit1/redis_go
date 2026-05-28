@@ -60,6 +60,23 @@ func (r *Request) ParseReader(b *bufio.Reader) error {
 }
 
 func (e *Elem) ParseReader(b *bufio.Reader) error {
+
+	// Skip stray \r and \n
+	for {
+		prefix, err := b.ReadByte()
+		if err != nil {
+			return err
+		}
+		// skip stray \r and \n
+		if prefix != '\r' && prefix != '\n' {
+			err = b.UnreadByte()
+			if err != nil {
+				return err
+			}
+			break
+		}
+	}
+
 	// Parse first header
 	err := e.ParseHeaderReader(b)
 	if err != nil {
@@ -111,7 +128,6 @@ func (e *Elem) ParseHeaderReader(b *bufio.Reader) error {
 			return err
 		}
 		e.Type = RespType(sym)
-		fmt.Println("sym", string(sym))
 	}
 	if e.Type == Array || e.Type == BulkString {
 		lenStr, err := b.ReadString('\n')
@@ -144,11 +160,10 @@ func (e *Elem) ParseBodyReader(b *bufio.Reader) error {
 		}
 
 		// Read \r\n
-		sep, err := b.ReadBytes('\n')
+		_, err = b.ReadBytes('\n')
 		if err != nil {
 			return err
 		}
-		fmt.Println("sep", string(sep))
 	}
 	if e.Type == Array {
 
@@ -287,20 +302,12 @@ func (r *Request) ToCommand() (Command, error) {
 	if r.Type != Array && len(r.Array) != 0 {
 		return Command{}, errors.New("not valid request to convert to cmd")
 	}
-	cmd := Command{}
-	switch strings.ToLower(string(r.Array[0].Value)) {
-	case "set":
-		cmd.Type = SET
-	case "get":
-		cmd.Type = GET
-	case "delete":
-		cmd.Type = DELETE
-	case "hello":
-		cmd.Type = HELLO
-	default:
-		cmd.Type = -1
-	}
 
+	cmd := Command{}
+	cmd.Type = CommandType(strings.ToLower(string(r.Array[0].Value)))
+	if cmd.Type == DELETE || cmd.Type == SET {
+		cmd.Writing = true
+	}
 	cmd.Args = make([]string, 0, r.Len)
 
 	for _, v := range r.Array[1:] {
