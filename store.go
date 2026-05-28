@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -52,4 +53,38 @@ func (s *Store) Delete(key string) error {
 	defer s.mu.Unlock()
 	delete(s.data, key)
 	return nil
+}
+func (s *Store) sweep() {
+	now := time.Now()
+	slog.Info("[Sweeping]")
+
+	// short read lock to collect expired keys
+	s.mu.RLock()
+	var expired []string
+	for k, e := range s.data {
+		if e.hasTTL && now.After(e.expiresAt) {
+			expired = append(expired, k)
+		}
+	}
+	s.mu.RUnlock()
+
+	if len(expired) == 0 {
+		return
+	}
+
+	// write lock only for deletion
+	s.mu.Lock()
+	for _, k := range expired {
+		delete(s.data, k)
+	}
+	s.mu.Unlock()
+}
+func (s *Store) startExpirySweep() {
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			s.sweep()
+		}
+	}()
 }

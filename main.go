@@ -44,6 +44,7 @@ func (s *Server) Start() error {
 	}
 	s.ln = ln
 	go s.aof.FlushLoop()
+	s.store.startExpirySweep()
 	return s.acceptLoop()
 }
 

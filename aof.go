@@ -38,7 +38,7 @@ func (a *AOF) WriteRaw(b []byte) error {
 func (a *AOF) FlushLoop() {
 	ticker := time.NewTicker(time.Second)
 	for range ticker.C {
-		slog.Info("Writing to log")
+		slog.Info("[Writing to log]")
 		a.mu.Lock()
 		a.w.Flush() // flush bufio buffer to OS
 		a.f.Sync()  // flush OS buffer to disk

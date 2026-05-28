@@ -10,7 +10,7 @@ func ToSimpleString(s string) []byte {
 	return []byte(string(SimpleString) + s + SEP)
 }
 func ToBulkString(s string) []byte {
-	return []byte(fmt.Sprintf("%s%d\r\n%s\r\n", BulkString, len(s), s))
+	return []byte(fmt.Sprintf("%c%d\r\n%s\r\n", BulkString, len(s), s))
 }
 
 func NullBulkString() []byte {
