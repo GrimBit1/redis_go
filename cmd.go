@@ -17,6 +17,7 @@ const (
 	HELLO  CommandType = "hello"
 	PING   CommandType = "ping"
 	ECHO   CommandType = "echo"
+	EXISTS   CommandType = "exists"
 )
 
 type Command struct {
@@ -117,7 +118,7 @@ func (cmd *Command) Execute(s *Store) ([]byte, error) {
 			return nil, err
 		}
 		return ToSimpleString("OK"), nil
-	case "EXISTS":
+	case EXISTS:
 		// supports multiple keys, returns count of existing ones
 		count := 0
 		for _, key := range cmd.Args {
