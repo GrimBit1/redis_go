@@ -16,3 +16,7 @@ func ToBulkString(s string) []byte {
 func NullBulkString() []byte {
 	return []byte("$-1\r\n")
 }
+
+func ToInteger(i int) []byte {
+	return []byte(fmt.Sprintf("%c%d%s", Integer, i, SEP))
+}

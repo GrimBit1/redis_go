@@ -117,6 +117,16 @@ func (cmd *Command) Execute(s *Store) ([]byte, error) {
 			return nil, err
 		}
 		return ToSimpleString("OK"), nil
+	case "EXISTS":
+		// supports multiple keys, returns count of existing ones
+		count := 0
+		for _, key := range cmd.Args {
+			_, ok := s.Get(key)
+			if ok {
+				count++
+			}
+		}
+		return ToInteger(count), nil
 	default:
 		return ToSimpleString("OK"), nil
 	}
